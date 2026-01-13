@@ -1,0 +1,6 @@
+# exclude from the generated zip
+.git*           export-ignore
+.travis.yml     export-ignore
+examples        export-ignore
+readme_images   export-ignore
+tests           export-ignore

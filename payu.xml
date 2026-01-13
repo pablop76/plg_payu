@@ -19,7 +19,15 @@
 		<folder>vendor</folder>
 		<folder>services</folder>
 		<folder>src</folder>
+		<folder>language</folder>
 	</files>
+
+	<languages>
+		<language tag="en-GB">language/en-GB/plg_hikashoppayment_payu.ini</language>
+		<language tag="en-GB">language/en-GB/plg_hikashoppayment_payu.sys.ini</language>
+		<language tag="pl-PL">language/pl-PL/plg_hikashoppayment_payu.ini</language>
+		<language tag="pl-PL">language/pl-PL/plg_hikashoppayment_payu.sys.ini</language>
+	</languages>
 
 	<params addpath="/components/com_hikashop/params">
 		<param name="pluginoptions" type="pluginoptions" default="plugin" label="hikashop"

@@ -14,6 +14,9 @@ use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\DI\Container;
 use Joomla\DI\ServiceProviderInterface;
 use Joomla\Event\DispatcherInterface;
+// Register the namespace manually for HikaShop plugins
+\JLoader::registerNamespace('Pablop76\\Plugin\\HikashopPayment\\Payu', JPATH_PLUGINS . '/hikashoppayment/payu/src', false, false, 'psr4');
+
 use Pablop76\Plugin\HikashopPayment\Payu\Extension\Payu;
 
 return new class implements ServiceProviderInterface

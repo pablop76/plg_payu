@@ -22,21 +22,25 @@ class Payu extends \hikashopPaymentPlugin
     public $name = 'payu';
 
     public $pluginConfig = array(
-        'pos_id' => array('POS ID', 'input'),
-        'signature_key' => array('SIGNATURE KEY', 'input'),
-        'oauth_client_id' => array('OAUTH CLIENT ID', 'input'),
-        'oauth_client_secret' => array('OAUTH CLIENT SECRET', 'input'),
-        'sandbox' => array('SANDBOX MODE', 'boolean', 1),
+        'pos_id' => array('POS_ID', 'input'),
+        'signature_key' => array('SIGNATURE_KEY', 'input'),
+        'oauth_client_id' => array('OAUTH_CLIENT_ID', 'input'),
+        'oauth_client_secret' => array('OAUTH_CLIENT_SECRET', 'input'),
+        'sandbox' => array('SANDBOX_MODE', 'boolean', 1),
         'debug' => array('DEBUG', 'boolean', 0),
-        'return_url' => array('RETURN URL', 'input'),
-        'invalid_status' => array('INVALID STATUS', 'orderstatus'),
-        'verified_status' => array('VERIFIED STATUS', 'orderstatus'),
-        'check_status_on_return' => array('CHECK STATUS ON RETURN (for localhost)', 'boolean', 1)
+        'return_url' => array('RETURN_URL', 'input'),
+        'invalid_status' => array('INVALID_STATUS', 'orderstatus'),
+        'verified_status' => array('VERIFIED_STATUS', 'orderstatus'),
+        'check_status_on_return' => array('CHECK_STATUS_ON_RETURN_FOR_LOCALHOST', 'boolean', 1)
     );
 
     public function __construct(&$subject, $config)
     {
         parent::__construct($subject, $config);
+        
+        // Load language file
+        $lang = Factory::getApplication()->getLanguage();
+        $lang->load('plg_hikashoppayment_payu', JPATH_PLUGINS . '/hikashoppayment/payu');
     }
 
     public function getPaymentDefaultValues(&$element)
@@ -236,7 +240,7 @@ class Payu extends \hikashopPaymentPlugin
             return false;
         }
         
-        $this->loadPaymentParams();
+        $this->loadPayuParams();
         $this->initPayuSdk();
         
         try {
@@ -291,7 +295,7 @@ class Payu extends \hikashopPaymentPlugin
     {
         $this->logDebug('--- PayU Notification Triggered ---');
 
-        $this->loadPaymentParams();
+        $this->loadPayuParams();
         $this->initPayuSdk();
 
         try {
@@ -406,7 +410,7 @@ class Payu extends \hikashopPaymentPlugin
     /**
      * Ładuje parametry płatności z bazy danych
      */
-    private function loadPaymentParams()
+    private function loadPayuParams()
     {
         if (!empty($this->payment_params) && is_object($this->payment_params) && !empty($this->payment_params->pos_id)) {
             return;

@@ -1,0 +1,7 @@
+# Mac crap
+.DS_Store
+
+.idea
+vendor
+composer.lock
+lib/Cache
