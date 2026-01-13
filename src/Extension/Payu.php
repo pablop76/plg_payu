@@ -11,7 +11,6 @@ namespace Pablop76\Plugin\HikashopPayment\Payu\Extension;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Log\Log;
-use Joomla\Database\DatabaseInterface;
 
 \defined('_JEXEC') or die('Restricted access');
 
@@ -66,7 +65,19 @@ class Payu extends \hikashopPaymentPlugin
 
         $this->initPayuSdk();
 
-        $return_url = !empty($this->payment_params->return_url) ? $this->payment_params->return_url : HIKASHOP_LIVE . "index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=" . $order->order_id;
+        // URL powrotu - jeśli check_status_on_return włączone (domyślnie TAK), użyj specjalnego endpointu
+        $base_return_url = HIKASHOP_LIVE . "index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=" . $order->order_id;
+        $check_status = isset($this->payment_params->check_status_on_return) ? $this->payment_params->check_status_on_return : 1;
+        if ($check_status) {
+            // Użyj notify z dodatkowym parametrem check_return=1 do sprawdzenia statusu przed powrotem
+            $return_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=notify&notif_payment=payu&tmpl=component&order_id=' . $order->order_id . '&check_return=1';
+        } else {
+            $return_url = !empty($this->payment_params->return_url) ? $this->payment_params->return_url : $base_return_url;
+        }
+        
+        $this->logDebug('check_status_on_return: ' . $check_status);
+        $this->logDebug('continueUrl set to: ' . $return_url);
+        
         $currency = isset($order->cart->full_total->prices[0]->price_currency) ? $order->cart->full_total->prices[0]->price_currency : 'PLN';
         $amount = (int) round((isset($order->cart->full_total->prices[0]->price_value_with_tax) ? $order->cart->full_total->prices[0]->price_value_with_tax : 0) * 100);
 
@@ -187,53 +198,12 @@ class Payu extends \hikashopPaymentPlugin
     }
 
     /**
-     * Wywoływane po powrocie z PayU - sprawdza status płatności
-     * Rozwiązuje problem z localhost gdzie notyfikacje nie docierają
-     */
-    public function onAfterOrderCreate(&$order)
-    {
-        // Sprawdź czy to powrót z płatności PayU
-        $app = Factory::getApplication();
-        $input = $app->input;
-        
-        $task = $input->getCmd('task', '');
-        $orderId = $input->getInt('order_id', 0);
-        
-        // Tylko dla task=after_end (powrót z płatności)
-        if ($task !== 'after_end' || empty($orderId)) {
-            return;
-        }
-        
-        // Sprawdź czy zamówienie ma płatność PayU
-        if (empty($order->order_payment_method) || $order->order_payment_method !== $this->name) {
-            return;
-        }
-        
-        // Sprawdź czy włączono check_status_on_return
-        if (empty($this->payment_params->check_status_on_return)) {
-            return;
-        }
-        
-        $this->logDebug('onAfterOrderCreate - checking PayU status for order: ' . $orderId);
-        
-        // Sprawdź status płatności w PayU
-        $this->checkAndUpdateOrderStatus($orderId);
-    }
-
-    /**
      * Sprawdza status zamówienia w PayU i aktualizuje w HikaShop
      */
-    public function checkAndUpdateOrderStatus($order_id)
+    public function checkAndUpdateOrderStatus($order_id, $retry = 0)
     {
-        $db = Factory::getContainer()->get(DatabaseInterface::class);
-        
-        // Pobierz PayU order ID
-        $query = $db->getQuery(true)
-            ->select($db->quoteName('order_payment_txnid'))
-            ->from($db->quoteName('#__hikashop_order'))
-            ->where($db->quoteName('order_id') . ' = ' . (int)$order_id);
-        $db->setQuery($query);
-        $payuOrderId = $db->loadResult();
+        // Pobierz PayU order ID z order_payment_params
+        $payuOrderId = $this->getStoredPayuOrderId($order_id);
         
         if (empty($payuOrderId)) {
             $this->logDebug('No PayU order ID found for order: ' . $order_id);
@@ -259,12 +229,13 @@ class Payu extends \hikashopPaymentPlugin
                 return false;
             }
             
-            $this->logDebug('PayU Order Status for order ' . $order_id . ': ' . $status);
+            $this->logDebug('PayU Order Status for order ' . $order_id . ': ' . $status . ' (retry: ' . $retry . ')');
             
             switch ($status) {
                 case 'COMPLETED':
                     $new_status = $this->payment_params->verified_status ?? 'confirmed';
-                    $this->modifyOrder($order_id, $new_status, true, true);
+                    $this->logDebug('About to update order ' . $order_id . ' to status: ' . $new_status);
+                    $this->updateOrderStatus($order_id, $new_status);
                     $this->logDebug('Order ' . $order_id . ' status changed to: ' . $new_status . ' (via status check)');
                     return true;
                     
@@ -272,13 +243,20 @@ class Payu extends \hikashopPaymentPlugin
                 case 'REJECTED':
                 case 'EXPIRED':
                     $new_status = $this->payment_params->invalid_status ?? 'cancelled';
-                    $this->modifyOrder($order_id, $new_status, true, true);
+                    $this->updateOrderStatus($order_id, $new_status);
                     $this->logDebug('Order ' . $order_id . ' status changed to: ' . $new_status . ' (via status check)');
                     return true;
                     
                 case 'PENDING':
                 case 'WAITING_FOR_CONFIRMATION':
-                    $this->logDebug('Order ' . $order_id . ' status is ' . $status . ' - no change yet');
+                case 'NEW':
+                    // W sandbox status może być PENDING zaraz po płatności - poczekaj i spróbuj ponownie
+                    if ($retry < 3) {
+                        $this->logDebug('Order ' . $order_id . ' status is ' . $status . ' - waiting 2 seconds and retrying...');
+                        sleep(2);
+                        return $this->checkAndUpdateOrderStatus($order_id, $retry + 1);
+                    }
+                    $this->logDebug('Order ' . $order_id . ' status is still ' . $status . ' after retries - no change');
                     return false;
                     
                 default:
@@ -294,6 +272,29 @@ class Payu extends \hikashopPaymentPlugin
     public function onPaymentNotification(&$statuses)
     {
         $this->logDebug('--- PayU Notification Triggered ---');
+
+        $app = Factory::getApplication();
+        $input = $app->input;
+        
+        // Sprawdź czy to powrót użytkownika z PayU (check_return=1)
+        $checkReturn = $input->getInt('check_return', 0);
+        $orderId = $input->getInt('order_id', 0);
+        
+        if ($checkReturn && $orderId) {
+            $this->logDebug('User returned from PayU - checking status for order: ' . $orderId);
+            
+            $this->loadPayuParams();
+            $this->initPayuSdk();
+            
+            // Sprawdź status w PayU
+            $this->checkAndUpdateOrderStatus($orderId);
+            
+            // Przekieruj do strony "thank you" używając nagłówka HTTP
+            $redirect_url = HIKASHOP_LIVE . "index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=" . $orderId;
+            $this->logDebug('Redirecting to: ' . $redirect_url);
+            header('Location: ' . $redirect_url);
+            exit;
+        }
 
         $this->loadPayuParams();
         $this->initPayuSdk();
@@ -416,7 +417,7 @@ class Payu extends \hikashopPaymentPlugin
             return;
         }
         
-        $db = Factory::getContainer()->get(DatabaseInterface::class);
+        $db = Factory::getContainer()->get(\Joomla\Database\DatabaseInterface::class);
         $query = $db->getQuery(true)
             ->select($db->quoteName('payment_params'))
             ->from($db->quoteName('#__hikashop_payment'))
@@ -454,27 +455,91 @@ class Payu extends \hikashopPaymentPlugin
     private function storePayuOrderId($order_id, $payu_order_id)
     {
         try {
+            // Użyj API HikaShop
             $orderClass = hikashop_get('class.order');
-            if ($orderClass && method_exists($orderClass, 'get') && method_exists($orderClass, 'save')) {
-                $order = $orderClass->get($order_id);
-                if ($order) {
-                    $order->order_payment_txnid = $payu_order_id;
-                    $orderClass->save($order);
-                    $this->logDebug('storePayuOrderId via hikashop orderClass saved: ' . $payu_order_id . ' for order ' . $order_id);
-                    return;
+            $order = $orderClass->get($order_id);
+            
+            if ($order) {
+                // Pobierz aktualne params i dodaj payu_order_id
+                $params = !empty($order->order_payment_params) ? $order->order_payment_params : new \stdClass();
+                if (is_string($params)) {
+                    $params = hikashop_unserialize($params);
+                }
+                if (!is_object($params)) {
+                    $params = new \stdClass();
+                }
+                $params->payu_order_id = $payu_order_id;
+                
+                // Zapisz przez API
+                $update = new \stdClass();
+                $update->order_id = $order_id;
+                $update->order_payment_params = $params;
+                $orderClass->save($update);
+                
+                $this->logDebug('storePayuOrderId saved: ' . $payu_order_id . ' for order ' . $order_id);
+            }
+        } catch (\Exception $e) {
+            $this->logError('Failed to store PayU order id: ' . $e->getMessage());
+        }
+    }
+    
+    private function getStoredPayuOrderId($order_id)
+    {
+        try {
+            $orderClass = hikashop_get('class.order');
+            $order = $orderClass->get($order_id);
+            
+            if ($order && !empty($order->order_payment_params)) {
+                $params = $order->order_payment_params;
+                if (is_string($params)) {
+                    $params = hikashop_unserialize($params);
+                }
+                if (is_object($params) && !empty($params->payu_order_id)) {
+                    return $params->payu_order_id;
                 }
             }
-
-            $db = Factory::getContainer()->get(DatabaseInterface::class);
+        } catch (\Exception $e) {
+            $this->logError('Failed to get PayU order id: ' . $e->getMessage());
+        }
+        return null;
+    }
+    
+    /**
+     * Aktualizuje status zamówienia bezpośrednio SQL (hikashop_get nie działa w tmpl=component)
+     */
+    private function updateOrderStatus($order_id, $new_status)
+    {
+        $this->logDebug('updateOrderStatus called for order ' . $order_id . ' with status ' . $new_status);
+        
+        try {
+            $db = Factory::getContainer()->get(\Joomla\Database\DatabaseInterface::class);
+            
+            // Aktualizuj status zamówienia
             $query = $db->getQuery(true)
                 ->update($db->quoteName('#__hikashop_order'))
-                ->set($db->quoteName('order_payment_txnid') . ' = ' . $db->quote($payu_order_id))
+                ->set($db->quoteName('order_status') . ' = ' . $db->quote($new_status))
+                ->set($db->quoteName('order_modified') . ' = ' . time())
                 ->where($db->quoteName('order_id') . ' = ' . (int)$order_id);
             $db->setQuery($query);
             $db->execute();
-            $this->logDebug('storePayuOrderId via direct SQL saved: ' . $payu_order_id . ' for order ' . $order_id);
+            
+            $this->logDebug('updateOrderStatus: Order ' . $order_id . ' updated to ' . $new_status . ' via SQL');
+            
+            // Dodaj wpis do historii zamówienia
+            $history = new \stdClass();
+            $history->history_order_id = (int)$order_id;
+            $history->history_created = time();
+            $history->history_type = 'modification';
+            $history->history_notified = 1;
+            $history->history_reason = 'PayU payment confirmed';
+            $history->history_data = 'order_status';
+            $history->history_new_status = $new_status;
+            
+            $db->insertObject('#__hikashop_history', $history);
+            $this->logDebug('updateOrderStatus: History added for order ' . $order_id);
+            
         } catch (\Exception $e) {
-            $this->logError('Failed to store PayU order id: ' . $e->getMessage());
+            $this->logError('updateOrderStatus failed: ' . $e->getMessage());
         }
     }
 
