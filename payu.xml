@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="plugin" version="5.0" method="upgrade" group="hikashoppayment">
+	<name>PayU Polska (HikaShop)</name>
+	<creationDate>14 01 2026</creationDate>
+	<version>2.0.0</version>
+	<author>Pablop76</author>
+	<authorEmail>kontakt@web-service.com.pl</authorEmail>
+	<authorUrl>https://web-service.com.pl</authorUrl>
+	<copyright>(C) 2026 web-service. All rights reserved.</copyright>
+	<license>http://www.gnu.org/licenses/gpl-2.0.html GNU/GPL</license>
+	<description>Integracja systemu płatności PayU Polska z HikaShop (Joomla 5/6)</description>
+
+	<namespace path="src">Pablop76\Plugin\HikashopPayment\Payu</namespace>
+
+	<files>
+		<filename plugin="payu">payu.php</filename>
+		<filename>index.html</filename>
+		<filename>payu_end.php</filename>
+		<folder>vendor</folder>
+		<folder>services</folder>
+		<folder>src</folder>
+	</files>
+
+	<params addpath="/components/com_hikashop/params">
+		<param name="pluginoptions" type="pluginoptions" default="plugin" label="hikashop"
+			description="HikaShop options" />
+	</params>
+</extension>
