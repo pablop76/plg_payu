@@ -1,13 +1,15 @@
 <?php
 /**
  * @package     HikaShop PayU Payment Plugin
- * @version     2.0.0
+ * @version     2.1.0
+ * @copyright   (C) 2026 web-service. All rights reserved.
+ * @license     GNU/GPL
  */
 
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Factory;
 
-\defined('_JEXEC') or die('Restricted access');
+defined('_JEXEC') or die('Restricted access');
 ?>
 <div class="hikashop_payu_end" id="hikashop_payu_end">
     <span id="hikashop_payu_end_message" class="hikashop_payu_end_message">

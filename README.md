@@ -4,13 +4,13 @@ Wtyczka płatności PayU Polska dla HikaShop (Joomla 5/6).
 
 ## Funkcje
 
--  Integracja z PayU Polska
--  Obsługa środowiska Sandbox i Produkcji
--  Automatyczna zmiana statusu zamówienia po płatności
--  Powiadomienia email przy zmianie statusu
--  **Sprawdzanie statusu po powrocie** (rozwiązuje problem localhost/sandbox)
--  Tryb debug (logowanie)
--  Kompatybilność z Joomla 5/6
+- ✅ Integracja z PayU Polska
+- ✅ Obsługa środowiska Sandbox i Produkcji
+- ✅ Automatyczna zmiana statusu zamówienia po płatności
+- ✅ Powiadomienia email przy zmianie statusu
+- ✅ **Sprawdzanie statusu po powrocie** (rozwiązuje problem localhost/sandbox)
+- ✅ Tryb debug (logowanie)
+- ✅ Kompatybilność z Joomla 5/6
 
 ## Wymagania
 
@@ -21,9 +21,9 @@ Wtyczka płatności PayU Polska dla HikaShop (Joomla 5/6).
 ## Instalacja
 
 1. Pobierz paczkę ZIP z [Releases](https://github.com/pablop76/plg_payu/releases)
-2. W panelu Joomla: **System  Rozszerzenia  Instaluj**
+2. W panelu Joomla: **System → Rozszerzenia → Instaluj**
 3. Wgraj plik ZIP
-4. Przejdź do **Komponenty  HikaShop  Konfiguracja  Płatności**
+4. Przejdź do **Komponenty → HikaShop → Konfiguracja → Płatności**
 5. Kliknij **Nowy** i wybierz **PayU**
 
 ## Konfiguracja
@@ -51,25 +51,30 @@ Na localhost notyfikacje PayU nie docierają (PayU nie może wysłać webhooków
 
 ```
 plg_payu/
- payu.php              # Legacy entry point
- payu.xml              # Manifest instalacyjny
- payu_end.php          # Szablon przekierowania
- index.html
- language/             # Pliki językowe (en-GB, pl-PL)
- services/
-    provider.php      # Service Provider (J5/6)
- src/
-    Extension/
-        Payu.php      # Główna klasa pluginu
- vendor/               # PayU SDK (openpayu)
+├── payu.php              # Legacy entry point
+├── payu.xml              # Manifest instalacyjny
+├── payu_end.php          # Szablon przekierowania
+├── script.php            # Skrypt instalacyjny
+├── index.html
+├── language/             # Pliki językowe (en-GB, pl-PL)
+├── services/
+│   └── provider.php      # Service Provider (J5/6)
+├── src/
+│   └── Extension/
+│       └── Payu.php      # Główna klasa pluginu
+└── vendor/               # PayU SDK (openpayu)
 ```
 
 ## Changelog
 
-### v2.0.1 (2026-01-17)
+### v2.1.0 (2026-01-17)
 
-- Poprawiono wysyłanie emaili przy zmianie statusu (do klienta i admina)
-- Używa modifyOrder() zamiast bezpośredniego SQL
+- Refaktoryzacja dla Joomla 5/6
+- Dodano `script.php` z walidacją wymagań
+- Poprawiono wysyłanie emaili przy zmianie statusu
+- Nowoczesna konfiguracja XML z fieldsets
+- Pełna dokumentacja PHPDoc
+- Typowanie PHP 8.1+
 
 ### v2.0.0 (2026-01-14)
 
