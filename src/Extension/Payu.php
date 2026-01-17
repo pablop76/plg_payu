@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * @package     HikaShop PayU Payment Plugin
  * @version     2.0.0
@@ -504,39 +504,19 @@ class Payu extends \hikashopPaymentPlugin
         return null;
     }
     
-    /**
-     * Aktualizuje status zamówienia bezpośrednio SQL (hikashop_get nie działa w tmpl=component)
+        /**
+     * Aktualizuje status zamówienia używając API HikaShop (wysyła email z powiadomieniem)
      */
     private function updateOrderStatus($order_id, $new_status)
     {
         $this->logDebug('updateOrderStatus called for order ' . $order_id . ' with status ' . $new_status);
         
         try {
-            $db = Factory::getContainer()->get(\Joomla\Database\DatabaseInterface::class);
+            // Użyj modifyOrder() zamiast bezpośredniego SQL - to wysyła email z powiadomieniem
+            // Parametry: order_id, new_status, send_email_to_customer, send_email_to_admin
+            $this->modifyOrder($order_id, $new_status, true, true);
             
-            // Aktualizuj status zamówienia
-            $query = $db->getQuery(true)
-                ->update($db->quoteName('#__hikashop_order'))
-                ->set($db->quoteName('order_status') . ' = ' . $db->quote($new_status))
-                ->set($db->quoteName('order_modified') . ' = ' . time())
-                ->where($db->quoteName('order_id') . ' = ' . (int)$order_id);
-            $db->setQuery($query);
-            $db->execute();
-            
-            $this->logDebug('updateOrderStatus: Order ' . $order_id . ' updated to ' . $new_status . ' via SQL');
-            
-            // Dodaj wpis do historii zamówienia
-            $history = new \stdClass();
-            $history->history_order_id = (int)$order_id;
-            $history->history_created = time();
-            $history->history_type = 'modification';
-            $history->history_notified = 1;
-            $history->history_reason = 'PayU payment confirmed';
-            $history->history_data = 'order_status';
-            $history->history_new_status = $new_status;
-            
-            $db->insertObject('#__hikashop_history', $history);
-            $this->logDebug('updateOrderStatus: History added for order ' . $order_id);
+            $this->logDebug('updateOrderStatus: Order ' . $order_id . ' updated to ' . $new_status . ' via modifyOrder (email sent)');
             
         } catch (\Exception $e) {
             $this->logError('updateOrderStatus failed: ' . $e->getMessage());
