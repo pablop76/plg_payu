@@ -414,6 +414,9 @@ class Payu extends \hikashopPaymentPlugin
      */
     public function onPaymentNotification(&$statuses): void
     {
+        // Najpierw załaduj parametry, żeby logDebug działało
+        $this->loadPayuParams();
+        
         $this->logDebug('--- PayU Notification Triggered ---');
 
         $app = Factory::getApplication();
@@ -423,20 +426,59 @@ class Payu extends \hikashopPaymentPlugin
         $checkReturn = $input->getInt('check_return', 0);
         $orderId = $input->getInt('order_id', 0);
         
+        $this->logDebug('check_return: ' . $checkReturn . ', order_id: ' . $orderId);
+        
         if ($checkReturn && $orderId) {
             $this->logDebug('User returned from PayU - checking status for order: ' . $orderId);
             
-            $this->loadPayuParams();
+            // Nie ładuj ponownie - już załadowano na początku
             $this->initPayuSdk();
             
             // Sprawdź status w PayU
             $this->checkAndUpdateOrderStatus($orderId);
             
-            // Przekieruj do strony "thank you" używając nagłówka HTTP
-            $redirect_url = HIKASHOP_LIVE . "index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=" . $orderId;
+            $this->logDebug('After checkAndUpdateOrderStatus - preparing redirect');
+            
+            // Wyczyść koszyk
+            if (defined('HIKASHOP_COMPONENT')) {
+                $cartClass = hikashop_get('class.cart');
+                if ($cartClass) {
+                    $cartClass->cleanCartFromSession();
+                    $this->logDebug('Cart cleaned');
+                }
+            }
+            
+            // Pobierz Itemid z konfiguracji HikaShop
+            $url_itemid = '';
+            if (function_exists('hikashop_config')) {
+                $config = hikashop_config();
+                $checkout_itemid = $config->get('checkout_itemid', 0);
+                if (!empty($checkout_itemid)) {
+                    $url_itemid = '&Itemid=' . (int)$checkout_itemid;
+                }
+            }
+            
+            // Sprawdź czy jest ustawiony własny URL przekierowania
+            $custom_url = trim($this->payment_params->return_url ?? '');
+            
+            if (!empty($custom_url)) {
+                // Własny URL - dodaj komunikaty bo nie będzie ich HikaShop
+                $app->enqueueMessage(Text::_('THANK_YOU_FOR_PURCHASE'), 'success');
+                
+                // Generuj pełny URL do zamówienia
+                $order_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=order&task=show&cid=' . $orderId . $url_itemid;
+                $app->enqueueMessage(Text::sprintf('YOU_CAN_NOW_ACCESS_YOUR_ORDER_HERE', $order_url), 'success');
+                
+                $redirect_url = $custom_url;
+                $this->logDebug('Using custom return_url: ' . $redirect_url);
+            } else {
+                // Domyślna strona HikaShop after_end
+                $redirect_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=' . $orderId . $url_itemid;
+            }
+            
             $this->logDebug('Redirecting to: ' . $redirect_url);
-            header('Location: ' . $redirect_url);
-            exit;
+            $app->redirect($redirect_url);
+            return;
         }
 
         $this->loadPayuParams();

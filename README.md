@@ -28,22 +28,22 @@ Wtyczka płatności PayU Polska dla HikaShop (Joomla 5/6).
 
 ## Konfiguracja
 
-| Opcja | Opis |
-|-------|------|
-| POS ID | ID punktu płatności z PayU |
-| Signature Key | Klucz podpisu (MD5) z PayU |
-| OAuth Client ID | Client ID OAuth z PayU |
-| OAuth Client Secret | Client Secret OAuth z PayU |
-| Sandbox Mode | Tryb testowy (włącz dla testów) |
-| Debug | Logowanie do `administrator/logs/payu_debug.log` |
-| Return URL | URL powrotu (opcjonalny) |
+| Opcja                  | Opis                                                  |
+| ---------------------- | ----------------------------------------------------- |
+| POS ID                 | ID punktu płatności z PayU                            |
+| Signature Key          | Klucz podpisu (MD5) z PayU                            |
+| OAuth Client ID        | Client ID OAuth z PayU                                |
+| OAuth Client Secret    | Client Secret OAuth z PayU                            |
+| Sandbox Mode           | Tryb testowy (włącz dla testów)                       |
+| Debug                  | Logowanie do `administrator/logs/payu_debug.log`      |
+| Return URL             | URL powrotu (opcjonalny)                              |
 | Check Status on Return | Sprawdza status płatności po powrocie (dla localhost) |
-| Invalid Status | Status dla nieudanych płatności |
-| Verified Status | Status dla udanych płatności |
+| Invalid Status         | Status dla nieudanych płatności                       |
+| Verified Status        | Status dla udanych płatności                          |
 
 ## Problem z localhost/sandbox
 
-Na localhost notyfikacje PayU nie docierają (PayU nie może wysłać webhooków na adres lokalny). 
+Na localhost notyfikacje PayU nie docierają (PayU nie może wysłać webhooków na adres lokalny).
 
 **Rozwiązanie**: Włącz opcję **"Check Status on Return"** - wtyczka sprawdzi status płatności bezpośrednio w API PayU po powrocie użytkownika.
 
