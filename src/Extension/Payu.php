@@ -465,9 +465,12 @@ class Payu extends \hikashopPaymentPlugin
                 // Własny URL - dodaj komunikaty bo nie będzie ich HikaShop
                 $app->enqueueMessage(Text::_('THANK_YOU_FOR_PURCHASE'), 'success');
                 
-                // Generuj pełny URL do zamówienia
-                $order_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=order&task=show&cid=' . $orderId . $url_itemid;
-                $app->enqueueMessage(Text::sprintf('YOU_CAN_NOW_ACCESS_YOUR_ORDER_HERE', $order_url), 'success');
+                // Link do zamówienia tylko dla zalogowanych użytkowników
+                $user = Factory::getApplication()->getIdentity();
+                if ($user && !$user->guest) {
+                    $order_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=order&task=show&cid=' . $orderId . $url_itemid;
+                    $app->enqueueMessage(Text::sprintf('YOU_CAN_NOW_ACCESS_YOUR_ORDER_HERE', $order_url), 'success');
+                }
                 
                 $redirect_url = $custom_url;
                 $this->logDebug('Using custom return_url: ' . $redirect_url);

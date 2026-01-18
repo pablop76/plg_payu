@@ -73,7 +73,7 @@ plg_payu/
 - **Uproszczona konfiguracja return_url** - jedno pole (puste = domyślna strona HikaShop, wartość = własny URL)
 - **Elastyczne URL-e** - wszystkie adresy dynamiczne (HIKASHOP_LIVE, checkout_itemid z konfiguracji)
 - **Fix redirect po płatności** - poprawne przekierowanie z Itemid
-- **Link do zamówienia** - działa poprawnie dla gości i zalogowanych
+- **Link do zamówienia** - wyświetlany tylko dla zalogowanych użytkowników
 - **Komunikaty po płatności** - wyświetlane przy własnym return_url
 
 ### v2.1.0 (2026-01-17)
