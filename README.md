@@ -20,11 +20,12 @@ Wtyczka płatności PayU Polska dla HikaShop (Joomla 5/6).
 
 ## Instalacja
 
-1. Pobierz paczkę ZIP z [Releases](https://github.com/pablop76/plg_payu/releases)
-2. W panelu Joomla: **System → Rozszerzenia → Instaluj**
-3. Wgraj plik ZIP
-4. Przejdź do **Komponenty → HikaShop → Konfiguracja → Płatności**
-5. Kliknij **Nowy** i wybierz **PayU**
+1. Pobierz lub sklonuj repozytorium
+2. Spakuj folder do ZIP
+3. W panelu Joomla: **System → Rozszerzenia → Instaluj**
+4. Wgraj plik ZIP
+5. Przejdź do **Komponenty → HikaShop → Konfiguracja → Płatności**
+6. Kliknij **Nowy** i wybierz **PayU**
 
 ## Konfiguracja
 
