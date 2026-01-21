@@ -29,9 +29,12 @@ return new class () implements ServiceProviderInterface {
         $container->set(
             PluginInterface::class,
             function (Container $container) {
+                $dispatcher = $container->get(DispatcherInterface::class);
+                $pluginData = PluginHelper::getPlugin('hikashoppayment', 'payu');
+                
                 $plugin = new Payu(
-                    $container->get(DispatcherInterface::class),
-                    (array) PluginHelper::getPlugin('hikashoppayment', 'payu')
+                    $dispatcher,
+                    (array) $pluginData
                 );
                 $plugin->setApplication(Factory::getApplication());
 
