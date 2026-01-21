@@ -150,7 +150,8 @@ class Payu extends \hikashopPaymentPlugin
         
         if ($check_status) {
             // Użyj notify z dodatkowym parametrem check_return=1 do sprawdzenia statusu przed powrotem
-            $return_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=notify&notif_payment=payu&tmpl=component&order_id=' . $order->order_id . '&check_return=1' . $url_itemid;
+            // UWAGA: NIE używamy tmpl=component dla powrotu użytkownika - potrzebny pełny dokument HTML
+            $return_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=notify&notif_payment=payu&order_id=' . $order->order_id . '&check_return=1' . $url_itemid;
         } else {
             $return_url = !empty($this->payment_params->return_url) ? $this->payment_params->return_url : $base_return_url;
         }
