@@ -70,8 +70,7 @@ class Payu extends \hikashopPaymentPlugin
         'debug'                  => ['DEBUG', 'boolean', 0],
         'return_url'             => ['RETURN_URL', 'input'],
         'invalid_status'         => ['INVALID_STATUS', 'orderstatus'],
-        'verified_status'        => ['VERIFIED_STATUS', 'orderstatus'],
-        'check_status_on_return' => ['CHECK_STATUS_ON_RETURN_FOR_LOCALHOST', 'boolean', 1]
+        'verified_status'        => ['VERIFIED_STATUS', 'orderstatus']
     ];
 
     /**
@@ -134,30 +133,18 @@ class Payu extends \hikashopPaymentPlugin
 
         $this->initPayuSdk();
 
-        // Pobierz Itemid z konfiguracji HikaShop dla poprawnego routingu
-        $url_itemid = '';
-        if (function_exists('hikashop_config')) {
-            $config = hikashop_config();
-            $checkout_itemid = $config->get('checkout_itemid', 0);
-            if (!empty($checkout_itemid)) {
-                $url_itemid = '&Itemid=' . (int)$checkout_itemid;
-            }
-        }
-
-        // URL powrotu - jeśli check_status_on_return włączone (domyślnie TAK), użyj specjalnego endpointu
-        $base_return_url = HIKASHOP_LIVE . "index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=" . $order->order_id . $url_itemid;
-        $check_status = $this->payment_params->check_status_on_return ?? 1;
+        // URL powrotu użytkownika - zawsze after_end (standardowa strona HikaShop)
+        // Status zamówienia jest aktualizowany przez webhook (notifyUrl)
+        // Używamy $this->url_itemid z klasy bazowej hikashopPaymentPlugin (ustawiane w parent::onAfterOrderConfirm)
+        $return_url = !empty($this->payment_params->return_url) 
+            ? $this->payment_params->return_url 
+            : HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=' . $order->order_id . $this->url_itemid;
         
-        if ($check_status) {
-            // Użyj notify z dodatkowym parametrem check_return=1 do sprawdzenia statusu przed powrotem
-            // UWAGA: NIE używamy tmpl=component dla powrotu użytkownika - potrzebny pełny dokument HTML
-            $return_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=notify&notif_payment=payu&order_id=' . $order->order_id . '&check_return=1' . $url_itemid;
-        } else {
-            $return_url = !empty($this->payment_params->return_url) ? $this->payment_params->return_url : $base_return_url;
-        }
+        // Webhook URL dla powiadomień serwer-serwer (z tmpl=component i lang)
+        $notify_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=notify&notif_payment=payu&tmpl=component&lang=' . $this->locale . $this->url_itemid;
         
-        $this->logDebug('check_status_on_return: ' . $check_status);
         $this->logDebug('continueUrl set to: ' . $return_url);
+        $this->logDebug('notifyUrl set to: ' . $notify_url);
         
         $currency = $order->cart->full_total->prices[0]->price_currency ?? 'PLN';
         $amount = (int) round(($order->cart->full_total->prices[0]->price_value_with_tax ?? 0) * 100);
@@ -165,7 +152,7 @@ class Payu extends \hikashopPaymentPlugin
         // Przygotowanie danych zamówienia
         $orderData = [
             'continueUrl'   => $return_url,
-            'notifyUrl'     => HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=notify&notif_payment=payu&tmpl=component&order_id=' . $order->order_id,
+            'notifyUrl'     => $notify_url,
             'customerIp'    => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
             'merchantPosId' => \OpenPayU_Configuration::getMerchantPosId(),
             'description'   => Text::sprintf('PLG_HIKASHOPPAYMENT_PAYU_ORDER_DESCRIPTION', $order->order_number),
@@ -415,7 +402,8 @@ class Payu extends \hikashopPaymentPlugin
     }
 
     /**
-     * Handle PayU payment notifications
+     * Handle PayU payment notifications (webhooks)
+     * This is called only for server-to-server notifications from PayU
      *
      * @param   array  $statuses  Order statuses
      *
@@ -425,77 +413,11 @@ class Payu extends \hikashopPaymentPlugin
      */
     public function onPaymentNotification(&$statuses): void
     {
-        // Najpierw załaduj parametry, żeby logDebug działało
+        // Załaduj parametry
         $this->loadPayuParams();
         
-        $this->logDebug('--- PayU Notification Triggered ---');
+        $this->logDebug('--- PayU Webhook Notification ---');
 
-        $app = Factory::getApplication();
-        $input = $app->input;
-        
-        // Sprawdź czy to powrót użytkownika z PayU (check_return=1)
-        $checkReturn = $input->getInt('check_return', 0);
-        $orderId = $input->getInt('order_id', 0);
-        
-        $this->logDebug('check_return: ' . $checkReturn . ', order_id: ' . $orderId);
-        
-        if ($checkReturn && $orderId) {
-            $this->logDebug('User returned from PayU - checking status for order: ' . $orderId);
-            
-            // Nie ładuj ponownie - już załadowano na początku
-            $this->initPayuSdk();
-            
-            // Sprawdź status w PayU
-            $this->checkAndUpdateOrderStatus($orderId);
-            
-            $this->logDebug('After checkAndUpdateOrderStatus - preparing redirect');
-            
-            // Wyczyść koszyk
-            if (defined('HIKASHOP_COMPONENT')) {
-                $cartClass = hikashop_get('class.cart');
-                if ($cartClass) {
-                    $cartClass->cleanCartFromSession();
-                    $this->logDebug('Cart cleaned');
-                }
-            }
-            
-            // Pobierz Itemid z konfiguracji HikaShop
-            $url_itemid = '';
-            if (function_exists('hikashop_config')) {
-                $config = hikashop_config();
-                $checkout_itemid = $config->get('checkout_itemid', 0);
-                if (!empty($checkout_itemid)) {
-                    $url_itemid = '&Itemid=' . (int)$checkout_itemid;
-                }
-            }
-            
-            // Sprawdź czy jest ustawiony własny URL przekierowania
-            $custom_url = trim($this->payment_params->return_url ?? '');
-            
-            if (!empty($custom_url)) {
-                // Własny URL - dodaj komunikaty bo nie będzie ich HikaShop
-                $app->enqueueMessage(Text::_('THANK_YOU_FOR_PURCHASE'), 'success');
-                
-                // Link do zamówienia tylko dla zalogowanych użytkowników
-                $user = Factory::getApplication()->getIdentity();
-                if ($user && !$user->guest) {
-                    $order_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=order&task=show&cid=' . $orderId . $url_itemid;
-                    $app->enqueueMessage(Text::sprintf('YOU_CAN_NOW_ACCESS_YOUR_ORDER_HERE', $order_url), 'success');
-                }
-                
-                $redirect_url = $custom_url;
-                $this->logDebug('Using custom return_url: ' . $redirect_url);
-            } else {
-                // Domyślna strona HikaShop after_end
-                $redirect_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=' . $orderId . $url_itemid;
-            }
-            
-            $this->logDebug('Redirecting to: ' . $redirect_url);
-            $app->redirect($redirect_url);
-            return;
-        }
-
-        $this->loadPayuParams();
         $this->initPayuSdk();
 
         try {
