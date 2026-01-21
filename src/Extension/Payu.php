@@ -134,13 +134,23 @@ class Payu extends \hikashopPaymentPlugin
 
         $this->initPayuSdk();
 
+        // Pobierz Itemid z konfiguracji HikaShop dla poprawnego routingu
+        $url_itemid = '';
+        if (function_exists('hikashop_config')) {
+            $config = hikashop_config();
+            $checkout_itemid = $config->get('checkout_itemid', 0);
+            if (!empty($checkout_itemid)) {
+                $url_itemid = '&Itemid=' . (int)$checkout_itemid;
+            }
+        }
+
         // URL powrotu - jeśli check_status_on_return włączone (domyślnie TAK), użyj specjalnego endpointu
-        $base_return_url = HIKASHOP_LIVE . "index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=" . $order->order_id;
+        $base_return_url = HIKASHOP_LIVE . "index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=" . $order->order_id . $url_itemid;
         $check_status = $this->payment_params->check_status_on_return ?? 1;
         
         if ($check_status) {
             // Użyj notify z dodatkowym parametrem check_return=1 do sprawdzenia statusu przed powrotem
-            $return_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=notify&notif_payment=payu&tmpl=component&order_id=' . $order->order_id . '&check_return=1';
+            $return_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=notify&notif_payment=payu&tmpl=component&order_id=' . $order->order_id . '&check_return=1' . $url_itemid;
         } else {
             $return_url = !empty($this->payment_params->return_url) ? $this->payment_params->return_url : $base_return_url;
         }
