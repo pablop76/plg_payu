@@ -7,14 +7,14 @@
         <type>plugin</type>
         <client>site</client>
         <folder>hikashoppayment</folder>
-        <version>2.2.2</version>
+        <version>2.2.3</version>
         <infourl title="PayU Polska (HikaShop)">https://github.com/pablop76/plg_payu</infourl>
         <targetplatform name="joomla" version="(5|6)\.[0-9]+"/>
         <php_minimum>8.1.0</php_minimum>
         <downloads>
-            <downloadurl type="full" format="zip">https://github.com/pablop76/plg_payu/releases/download/v2.2.2/plg_payu-2.2.2.zip</downloadurl>
+            <downloadurl type="full" format="zip">https://github.com/pablop76/plg_payu/releases/download/v2.2.3/plg_payu-2.2.3.zip</downloadurl>
         </downloads>
-        <sha256>d2a765d1c3e0f18028dbcfc12f434f71015cc352671447dfc29377489714eace</sha256>
+        <sha256>1516ce6ad9160e78fa2bd7a3c8c95a1bcc86318906f4f878f7764cc265674931</sha256>
         <tags>
             <tag>stable</tag>
         </tags>
