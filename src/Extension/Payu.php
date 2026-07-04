@@ -1,7 +1,7 @@
 <?php
 /**
  * @package     HikaShop PayU Payment Plugin
- * @version     2.2.2
+ * @version     2.2.3
  * @copyright   (C) 2026 web-service. All rights reserved.
  * @license     GNU/GPL
  */
@@ -16,9 +16,23 @@ use Joomla\Database\DatabaseInterface;
 
 defined('_JEXEC') or die('Restricted access');
 
+// HikaShop definiuje hikashopPaymentPlugin leniwie: dopiero pierwsze załadowanie jego
+// helper.php rejestruje autoload dla tej klasy. W kontekstach, gdzie HikaShop jeszcze nie
+// "wystartował" w danym żądaniu (np. podczas instalacji/aktualizacji tej wtyczki w Menedżerze
+// Rozszerzeń), ta klasa bazowa nie jest dostępna i "class Payu extends hikashopPaymentPlugin"
+// rzuca fatal "Class not found". Guard musi być w TYM pliku, przed deklaracją klasy - PHP
+// odkłada kompilację "class X extends Y" do wykonania tej linii, więc wystarczy wcześniej
+// w tym samym pliku załadować helper.php, niezależnie od tego, co wywołało autoload.
+if (!class_exists('hikashopPaymentPlugin', false)) {
+    $payuHikashopHelper = JPATH_ADMINISTRATOR . '/components/com_hikashop/helpers/helper.php';
+    if (is_file($payuHikashopHelper)) {
+        require_once $payuHikashopHelper;
+    }
+}
+
 /**
  * PayU Payment Plugin for HikaShop
- * 
+ *
  * @since  2.1.0
  */
 class Payu extends \hikashopPaymentPlugin
