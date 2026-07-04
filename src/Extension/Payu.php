@@ -1,7 +1,7 @@
 <?php
 /**
  * @package     HikaShop PayU Payment Plugin
- * @version     2.2.1
+ * @version     2.2.2
  * @copyright   (C) 2026 web-service. All rights reserved.
  * @license     GNU/GPL
  */
@@ -136,10 +136,18 @@ class Payu extends \hikashopPaymentPlugin
         // URL powrotu użytkownika - zawsze after_end (standardowa strona HikaShop)
         // Status zamówienia jest aktualizowany przez webhook (notifyUrl)
         // Używamy $this->url_itemid z klasy bazowej hikashopPaymentPlugin (ustawiane w parent::onAfterOrderConfirm)
-        $return_url = !empty($this->payment_params->return_url) 
-            ? $this->payment_params->return_url 
-            : HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=' . $order->order_id . $this->url_itemid;
-        
+        if (!empty($this->payment_params->return_url)) {
+            $return_url = trim($this->payment_params->return_url);
+
+            // Dopuszczamy adres względny w konfiguracji (np. /zamowienia) - budujemy absolutny
+            // na bazie HIKASHOP_LIVE, bo PayU wymaga pełnego adresu https (Invalid continueUrl).
+            if (!preg_match('#^https?://#i', $return_url)) {
+                $return_url = rtrim(HIKASHOP_LIVE, '/') . '/' . ltrim($return_url, '/');
+            }
+        } else {
+            $return_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=' . $order->order_id . $this->url_itemid;
+        }
+
         // Webhook URL dla powiadomień serwer-serwer (z tmpl=component i lang)
         $notify_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=notify&notif_payment=payu&tmpl=component&lang=' . $this->locale . $this->url_itemid;
 
