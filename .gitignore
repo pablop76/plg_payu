@@ -1,0 +1,18 @@
+# Lokalna notatka robocza dla Claude — nie publikować
+/CLAUDE.md
+
+# Paczka wydania — publikowana jako asset GitHub Release, nie w repo
+*.zip
+
+# Logi (payu_debug.log itp.)
+*.log
+
+# Dane lokalne / sekrety API PayU (nie commitować kluczy)
+.dev/
+*.local.json
+
+# OS / edytory
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

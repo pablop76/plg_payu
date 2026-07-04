@@ -1,7 +1,7 @@
 ﻿<?php
 /**
  * @package     HikaShop PayU Payment Plugin
- * @version     2.1.0
+ * @version     2.2.0
  * @copyright   (C) 2026 web-service. All rights reserved.
  * @license     GNU/GPL
  * 

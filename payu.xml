@@ -2,7 +2,7 @@
 <extension type="plugin" version="5.0" method="upgrade" group="hikashoppayment">
     <name>PLG_HIKASHOPPAYMENT_PAYU</name>
     <creationDate>2026-01-17</creationDate>
-    <version>2.1.0</version>
+    <version>2.2.0</version>
     <author>Paweł Półtoraczyk</author>
     <authorEmail>kontakt@web-service.com.pl</authorEmail>
     <authorUrl>https://web-service.com.pl</authorUrl>
@@ -30,4 +30,8 @@
         <language tag="pl-PL">language/pl-PL/plg_hikashoppayment_payu.ini</language>
         <language tag="pl-PL">language/pl-PL/plg_hikashoppayment_payu.sys.ini</language>
     </languages>
+
+    <updateservers>
+        <server type="extension" name="PayU HikaShop Payment Plugin Updates">https://raw.githubusercontent.com/pablop76/plg_payu/release/updates.xml</server>
+    </updateservers>
 </extension>
