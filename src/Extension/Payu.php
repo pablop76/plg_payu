@@ -142,7 +142,24 @@ class Payu extends \hikashopPaymentPlugin
         
         // Webhook URL dla powiadomień serwer-serwer (z tmpl=component i lang)
         $notify_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=notify&notif_payment=payu&tmpl=component&lang=' . $this->locale . $this->url_itemid;
-        
+
+        // PayU odrzuca continueUrl/notifyUrl bez https (ERROR_VALUE_INVALID - Invalid continueUrl).
+        // Wymuszamy schemat https na adresach wysyłanych do PayU.
+        $return_url = preg_replace('#^http://#i', 'https://', $return_url);
+        $notify_url = preg_replace('#^http://#i', 'https://', $notify_url);
+
+        // Diagnostyka: PayU wymaga absolutnego adresu https z hostem publicznym.
+        $return_scheme = strtolower((string) parse_url($return_url, PHP_URL_SCHEME));
+        $return_host   = (string) parse_url($return_url, PHP_URL_HOST);
+        $is_ip         = filter_var($return_host, FILTER_VALIDATE_IP) !== false;
+        $is_public_ip  = filter_var($return_host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+
+        if ($return_scheme !== 'https' || $return_host === '') {
+            $this->logError('continueUrl nie jest poprawnym absolutnym adresem https (' . $return_url . ') - PayU odrzuci go jako Invalid continueUrl. Sprawdź HIKASHOP_LIVE (Live Site w konfiguracji Joomla) lub pole Return URL.');
+        } elseif (strcasecmp($return_host, 'localhost') === 0 || ($is_ip && !$is_public_ip)) {
+            $this->logError('continueUrl wskazuje na localhost/adres prywatny (' . $return_host . ') - PayU odrzuci go jako Invalid continueUrl. Ustaw publiczną domenę https lub pole Return URL.');
+        }
+
         $this->logDebug('continueUrl set to: ' . $return_url);
         $this->logDebug('notifyUrl set to: ' . $notify_url);
         
