@@ -1,7 +1,7 @@
 <?php
 /**
  * @package     HikaShop PayU Payment Plugin
- * @version     2.2.3
+ * @version     2.2.4
  * @copyright   (C) 2026 web-service. All rights reserved.
  * @license     GNU/GPL
  */
@@ -82,6 +82,8 @@ class Payu extends \hikashopPaymentPlugin
         'oauth_client_secret'    => ['OAUTH_CLIENT_SECRET', 'input'],
         'sandbox'                => ['SANDBOX_MODE', 'boolean', 1],
         'debug'                  => ['DEBUG', 'boolean', 0],
+        // Lista pozycji menu Joomla - opcje wypełniane dynamicznie w konstruktorze (tylko admin)
+        'return_page'            => ['RETURN_PAGE', 'list', ['' => 'RETURN_PAGE_DEFAULT']],
         'return_url'             => ['RETURN_URL', 'input'],
         'invalid_status'         => ['INVALID_STATUS', 'orderstatus'],
         'verified_status'        => ['VERIFIED_STATUS', 'orderstatus']
@@ -98,10 +100,50 @@ class Payu extends \hikashopPaymentPlugin
     public function __construct(&$subject, $config)
     {
         parent::__construct($subject, $config);
-        
+
+        $app = Factory::getApplication();
+
         // Load language file
-        $lang = Factory::getApplication()->getLanguage();
+        $lang = $app->getLanguage();
         $lang->load('plg_hikashoppayment_payu', JPATH_PLUGINS . '/hikashoppayment/payu');
+
+        // Rozwijana lista stron powrotu = pozycje menu Joomla. Budujemy tylko w panelu admina
+        // (tam renderowana jest konfiguracja HikaShop), żeby nie odpytywać bazy na froncie.
+        if ($app->isClient('administrator')) {
+            $this->pluginConfig['return_page'][2] = $this->buildReturnPageOptions();
+        }
+    }
+
+    /**
+     * Build the "return page" dropdown from published Joomla site menu items.
+     *
+     * @return  array  Map of Itemid => menu title (with an empty default option first)
+     *
+     * @since   2.2.4
+     */
+    private function buildReturnPageOptions(): array
+    {
+        $options = ['' => 'RETURN_PAGE_DEFAULT'];
+
+        try {
+            $db    = Factory::getContainer()->get(DatabaseInterface::class);
+            $query = $db->getQuery(true)
+                ->select($db->quoteName(['id', 'title']))
+                ->from($db->quoteName('#__menu'))
+                ->where($db->quoteName('client_id') . ' = 0')
+                ->where($db->quoteName('published') . ' = 1')
+                ->where($db->quoteName('type') . ' = ' . $db->quote('component'))
+                ->order($db->quoteName('lft') . ' ASC');
+            $db->setQuery($query);
+
+            foreach ((array) $db->loadObjectList() as $item) {
+                $options[(int) $item->id] = $item->title;
+            }
+        } catch (\Exception $e) {
+            // Brak dostępu do menu = zostaje tylko opcja domyślna (strona HikaShop)
+        }
+
+        return $options;
     }
 
     /**
@@ -147,17 +189,23 @@ class Payu extends \hikashopPaymentPlugin
 
         $this->initPayuSdk();
 
-        // URL powrotu użytkownika - zawsze after_end (standardowa strona HikaShop)
-        // Status zamówienia jest aktualizowany przez webhook (notifyUrl)
-        // Używamy $this->url_itemid z klasy bazowej hikashopPaymentPlugin (ustawiane w parent::onAfterOrderConfirm)
-        if (!empty($this->payment_params->return_url)) {
-            $return_url = trim($this->payment_params->return_url);
+        // URL powrotu użytkownika. Priorytet:
+        //   1) własny URL z konfiguracji (return_url) - może być względny,
+        //   2) wybrana pozycja menu Joomla (return_page = Itemid),
+        //   3) domyślna strona potwierdzenia HikaShop (after_end).
+        // Status zamówienia aktualizuje webhook (notifyUrl). $this->url_itemid pochodzi z klasy bazowej.
+        $custom_url  = isset($this->payment_params->return_url) ? trim((string) $this->payment_params->return_url) : '';
+        $return_page = isset($this->payment_params->return_page) ? (int) $this->payment_params->return_page : 0;
 
-            // Dopuszczamy adres względny w konfiguracji (np. /zamowienia) - budujemy absolutny
-            // na bazie HIKASHOP_LIVE, bo PayU wymaga pełnego adresu https (Invalid continueUrl).
-            if (!preg_match('#^https?://#i', $return_url)) {
-                $return_url = rtrim(HIKASHOP_LIVE, '/') . '/' . ltrim($return_url, '/');
-            }
+        if ($custom_url !== '') {
+            // Dopuszczamy adres względny (np. /zamowienia) - budujemy absolutny na bazie HIKASHOP_LIVE,
+            // bo PayU wymaga pełnego adresu https (Invalid continueUrl).
+            $return_url = preg_match('#^https?://#i', $custom_url)
+                ? $custom_url
+                : rtrim(HIKASHOP_LIVE, '/') . '/' . ltrim($custom_url, '/');
+        } elseif ($return_page > 0) {
+            // Wybrana strona z menu Joomla - absolutny URL po Itemid (Joomla rozwiąże do właściwej strony).
+            $return_url = HIKASHOP_LIVE . 'index.php?Itemid=' . $return_page;
         } else {
             $return_url = HIKASHOP_LIVE . 'index.php?option=com_hikashop&ctrl=checkout&task=after_end&order_id=' . $order->order_id . $this->url_itemid;
         }
