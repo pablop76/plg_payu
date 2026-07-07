@@ -1,7 +1,7 @@
 <?php
 /**
  * @package     HikaShop PayU Payment Plugin
- * @version     2.2.4
+ * @version     2.3.0
  * @copyright   (C) 2026 web-service. All rights reserved.
  * @license     GNU/GPL
  */
@@ -13,6 +13,7 @@ use Joomla\CMS\Language\Text;
 use Joomla\CMS\Log\Log;
 use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\Database\DatabaseInterface;
+use Pablop76\Plugin\HikashopPayment\Payu\Client\PayuRestClient;
 
 defined('_JEXEC') or die('Restricted access');
 
@@ -187,7 +188,7 @@ class Payu extends \hikashopPaymentPlugin
             return false;
         }
 
-        $this->initPayuSdk();
+        $client = $this->getPayuClient();
 
         // URL powrotu użytkownika. Priorytet:
         //   1) własny URL z konfiguracji (return_url) - może być względny,
@@ -241,7 +242,6 @@ class Payu extends \hikashopPaymentPlugin
             'continueUrl'   => $return_url,
             'notifyUrl'     => $notify_url,
             'customerIp'    => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
-            'merchantPosId' => \OpenPayU_Configuration::getMerchantPosId(),
             'description'   => Text::sprintf('PLG_HIKASHOPPAYMENT_PAYU_ORDER_DESCRIPTION', $order->order_number),
             'currencyCode'  => $currency,
             'totalAmount'   => $amount,
@@ -264,17 +264,14 @@ class Payu extends \hikashopPaymentPlugin
             ];
         }
 
+        if (!empty($this->payment_params->debug)) {
+            $this->logDebug('PayU Order Request: ' . print_r($orderData, true));
+        }
+
         try {
-            $response = \OpenPayU_Order::create($orderData);
+            [$payuOrderId, $redirectUri] = $client->createOrder($orderData);
 
-            if (!empty($this->payment_params->debug)) {
-                $this->logDebug('PayU Order Request: ' . print_r($orderData, true));
-                $this->logDebug('PayU Order Raw Response: ' . print_r($response, true));
-            }
-
-            $respData = is_object($response) && method_exists($response, 'getResponse') ? $response->getResponse() : $response;
-
-            [$payuOrderId, $redirectUri] = $this->extractPayuResponse($respData);
+            $this->logDebug('PayU Order created. orderId: ' . $payuOrderId . ' | redirectUri: ' . $redirectUri);
 
             if (!empty($payuOrderId)) {
                 $this->storePayuOrderId($order->order_id, $payuOrderId);
@@ -285,7 +282,6 @@ class Payu extends \hikashopPaymentPlugin
                 return true;
             }
 
-            $this->logError('No redirect URI received from PayU. Full response: ' . print_r($respData, true));
             throw new \Exception('No redirect URI received from PayU');
 
         } catch (\Exception $e) {
@@ -294,6 +290,24 @@ class Payu extends \hikashopPaymentPlugin
             $this->logError($error_msg . ' | Stack: ' . $e->getTraceAsString());
             return false;
         }
+    }
+
+    /**
+     * Build a PayU REST client from the current payment parameters.
+     *
+     * @return  PayuRestClient
+     *
+     * @since   2.3.0
+     */
+    private function getPayuClient(): PayuRestClient
+    {
+        return new PayuRestClient(
+            !empty($this->payment_params->sandbox),
+            trim((string) ($this->payment_params->pos_id ?? '')),
+            trim((string) ($this->payment_params->signature_key ?? '')),
+            trim((string) ($this->payment_params->oauth_client_id ?? '')),
+            trim((string) ($this->payment_params->oauth_client_secret ?? ''))
+        );
     }
 
     /**
@@ -363,36 +377,6 @@ class Payu extends \hikashopPaymentPlugin
     }
 
     /**
-     * Extract PayU order ID and redirect URI from response
-     *
-     * @param   mixed  $respData  The response data
-     *
-     * @return  array  [payuOrderId, redirectUri]
-     *
-     * @since   2.1.0
-     */
-    private function extractPayuResponse($respData): array
-    {
-        $payuOrderId = null;
-        $redirectUri = null;
-
-        if (is_object($respData)) {
-            $payuOrderId = $respData->orderId ?? null;
-            $redirectUri = $respData->redirectUri ?? null;
-            
-            if (isset($respData->response) && is_object($respData->response)) {
-                $payuOrderId = $respData->response->orderId ?? $payuOrderId;
-                $redirectUri = $respData->response->redirectUri ?? $redirectUri;
-            }
-        } elseif (is_array($respData)) {
-            $payuOrderId = $respData['response']['orderId'] ?? $respData['orderId'] ?? null;
-            $redirectUri = $respData['response']['redirectUri'] ?? $respData['redirectUri'] ?? null;
-        }
-
-        return [$payuOrderId, $redirectUri];
-    }
-
-    /**
      * Check and update order status from PayU
      *
      * @param   int  $order_id  The order ID
@@ -413,19 +397,15 @@ class Payu extends \hikashopPaymentPlugin
         }
         
         $this->loadPayuParams();
-        $this->initPayuSdk();
-        
+        $client = $this->getPayuClient();
+
         try {
-            $response = \OpenPayU_Order::retrieve($payuOrderId);
-            $respData = is_object($response) && method_exists($response, 'getResponse') ? $response->getResponse() : $response;
-            
-            $this->logDebug('PayU Status Check Response: ' . print_r($respData, true));
-            
-            $status = null;
-            if (is_object($respData) && isset($respData->orders) && is_array($respData->orders) && count($respData->orders) > 0) {
-                $status = strtoupper($respData->orders[0]->status ?? '');
-            }
-            
+            $payuOrder = $client->retrieveOrder($payuOrderId);
+
+            $this->logDebug('PayU Status Check Response: ' . print_r($payuOrder, true));
+
+            $status = strtoupper((string) ($payuOrder['status'] ?? ''));
+
             if (empty($status)) {
                 $this->logDebug('Could not get status from PayU response');
                 return false;
@@ -505,10 +485,10 @@ class Payu extends \hikashopPaymentPlugin
         
         $this->logDebug('--- PayU Webhook Notification ---');
 
-        $this->initPayuSdk();
+        $client = $this->getPayuClient();
 
         try {
-            $body = trim(file_get_contents('php://input'));
+            $body = trim((string) file_get_contents('php://input'));
             $this->logDebug('PayU Notification Body: ' . $body);
 
             if (empty($body)) {
@@ -517,21 +497,30 @@ class Payu extends \hikashopPaymentPlugin
                 exit;
             }
 
-            $response = \OpenPayU_Order::consumeNotification($body);
-            $notification = $response->getResponse();
+            // Weryfikacja podpisu PayU (ochrona przed sfałszowaną notyfikacją)
+            $signature = PayuRestClient::readIncomingSignatureHeader();
+
+            if (!$client->verifyNotificationSignature($body, $signature)) {
+                $this->logError('Invalid PayU notification signature');
+                header("HTTP/1.1 400 Bad Request");
+                exit;
+            }
+
+            $notification = json_decode($body, true);
+            $notifOrder   = $notification['order'] ?? null;
 
             $this->logDebug('PayU Notification Response: ' . print_r($notification, true));
 
-            if (empty($notification->order->extOrderId)) {
+            if (empty($notifOrder['extOrderId'])) {
                 $this->logDebug('No extOrderId in notification');
                 header("HTTP/1.1 400 Bad Request");
                 exit;
             }
 
-            $order_id = $this->getOrderIdFromToken($notification->order->extOrderId);
+            $order_id = $this->getOrderIdFromToken($notifOrder['extOrderId']);
 
             if (empty($order_id)) {
-                $this->logDebug('Invalid order token: ' . $notification->order->extOrderId);
+                $this->logDebug('Invalid order token: ' . $notifOrder['extOrderId']);
                 header("HTTP/1.1 400 Bad Request");
                 exit;
             }
@@ -545,7 +534,7 @@ class Payu extends \hikashopPaymentPlugin
                 exit;
             }
 
-            $status = strtoupper($notification->order->status ?? '');
+            $status = strtoupper($notifOrder['status'] ?? '');
             $this->logDebug('PayU Order Status: ' . $status . ' for order: ' . $order_id);
 
             switch ($status) {
@@ -572,8 +561,8 @@ class Payu extends \hikashopPaymentPlugin
                     break;
             }
 
-            if (isset($notification->order->orderId)) {
-                $this->storePayuOrderId($order_id, $notification->order->orderId);
+            if (!empty($notifOrder['orderId'])) {
+                $this->storePayuOrderId($order_id, $notifOrder['orderId']);
             }
 
             $this->logDebug('PayU Notification processed successfully.');
@@ -586,38 +575,6 @@ class Payu extends \hikashopPaymentPlugin
             header("HTTP/1.1 500 Internal Server Error");
             exit;
         }
-    }
-
-    /**
-     * Initialize PayU SDK
-     *
-     * @return  void
-     *
-     * @throws  \Exception
-     *
-     * @since   2.1.0
-     */
-    private function initPayuSdk(): void
-    {
-        $vendor_path = __DIR__ . '/../../vendor/autoload.php';
-        
-        if (!file_exists($vendor_path)) {
-            $vendor_path = dirname(dirname(__DIR__)) . '/vendor/autoload.php';
-        }
-        
-        if (!file_exists($vendor_path)) {
-            throw new \Exception('PayU SDK not found at ' . $vendor_path);
-        }
-        
-        require_once $vendor_path;
-
-        $environment = !empty($this->payment_params->sandbox) ? 'sandbox' : 'secure';
-        
-        \OpenPayU_Configuration::setEnvironment($environment);
-        \OpenPayU_Configuration::setMerchantPosId(trim($this->payment_params->pos_id ?? ''));
-        \OpenPayU_Configuration::setSignatureKey(trim($this->payment_params->signature_key ?? ''));
-        \OpenPayU_Configuration::setOauthClientId(trim($this->payment_params->oauth_client_id ?? ''));
-        \OpenPayU_Configuration::setOauthClientSecret(trim($this->payment_params->oauth_client_secret ?? ''));
     }
 
     /**
