@@ -1,7 +1,7 @@
 <?php
 /**
  * @package     HikaShop PayU Payment Plugin
- * @version     2.3.0
+ * @version     2.3.1
  * @copyright   (C) 2026 web-service. All rights reserved.
  * @license     GNU/GPL
  */
@@ -11,7 +11,6 @@ namespace Pablop76\Plugin\HikashopPayment\Payu\Extension;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Log\Log;
-use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\Database\DatabaseInterface;
 use Pablop76\Plugin\HikashopPayment\Payu\Client\PayuRestClient;
 
@@ -164,7 +163,6 @@ class Payu extends \hikashopPaymentPlugin
         $element->payment_params->debug                = 0;
         $element->payment_params->invalid_status       = 'cancelled';
         $element->payment_params->verified_status      = 'confirmed';
-        $element->payment_params->check_status_on_return = 1;
     }
 
     /**
@@ -377,98 +375,6 @@ class Payu extends \hikashopPaymentPlugin
     }
 
     /**
-     * Check and update order status from PayU
-     *
-     * @param   int  $order_id  The order ID
-     * @param   int  $retry     Retry count
-     *
-     * @return  boolean
-     *
-     * @since   2.1.0
-     */
-    public function checkAndUpdateOrderStatus(int $order_id, int $retry = 0): bool
-    {
-        // Pobierz PayU order ID z order_payment_params
-        $payuOrderId = $this->getStoredPayuOrderId($order_id);
-        
-        if (empty($payuOrderId)) {
-            $this->logDebug('No PayU order ID found for order: ' . $order_id);
-            return false;
-        }
-        
-        $this->loadPayuParams();
-        $client = $this->getPayuClient();
-
-        try {
-            $payuOrder = $client->retrieveOrder($payuOrderId);
-
-            $this->logDebug('PayU Status Check Response: ' . print_r($payuOrder, true));
-
-            $status = strtoupper((string) ($payuOrder['status'] ?? ''));
-
-            if (empty($status)) {
-                $this->logDebug('Could not get status from PayU response');
-                return false;
-            }
-            
-            $this->logDebug('PayU Order Status for order ' . $order_id . ': ' . $status . ' (retry: ' . $retry . ')');
-            
-            return $this->processPayuStatus($order_id, $status, $retry);
-            
-        } catch (\Exception $e) {
-            $this->logError('PayU status check failed: ' . $e->getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Process PayU status and update order
-     *
-     * @param   int     $order_id  The order ID
-     * @param   string  $status    The PayU status
-     * @param   int     $retry     Retry count
-     *
-     * @return  boolean
-     *
-     * @since   2.1.0
-     */
-    private function processPayuStatus(int $order_id, string $status, int $retry = 0): bool
-    {
-        switch ($status) {
-            case 'COMPLETED':
-                $new_status = $this->payment_params->verified_status ?? 'confirmed';
-                $this->logDebug('About to update order ' . $order_id . ' to status: ' . $new_status);
-                $this->updateOrderStatus($order_id, $new_status);
-                $this->logDebug('Order ' . $order_id . ' status changed to: ' . $new_status . ' (via status check)');
-                return true;
-                
-            case 'CANCELED':
-            case 'REJECTED':
-            case 'EXPIRED':
-                $new_status = $this->payment_params->invalid_status ?? 'cancelled';
-                $this->updateOrderStatus($order_id, $new_status);
-                $this->logDebug('Order ' . $order_id . ' status changed to: ' . $new_status . ' (via status check)');
-                return true;
-                
-            case 'PENDING':
-            case 'WAITING_FOR_CONFIRMATION':
-            case 'NEW':
-                // W sandbox status może być PENDING zaraz po płatności - poczekaj i spróbuj ponownie
-                if ($retry < 3) {
-                    $this->logDebug('Order ' . $order_id . ' status is ' . $status . ' - waiting 2 seconds and retrying...');
-                    sleep(2);
-                    return $this->checkAndUpdateOrderStatus($order_id, $retry + 1);
-                }
-                $this->logDebug('Order ' . $order_id . ' status is still ' . $status . ' after retries - no change');
-                return false;
-                
-            default:
-                $this->logDebug('Unknown PayU status: ' . $status . ' for order: ' . $order_id);
-                return false;
-        }
-    }
-
-    /**
      * Handle PayU payment notifications (webhooks)
      * This is called only for server-to-server notifications from PayU
      *
@@ -608,7 +514,8 @@ class Payu extends \hikashopPaymentPlugin
     }
 
     /**
-     * Generate order token for PayU
+     * Generate a tamper-proof order token for PayU (extOrderId).
+     * HMAC-SHA256 z kluczem podpisu — bez znajomości klucza nie da się sfałszować tokenu.
      *
      * @param   int  $order_id  The order ID
      *
@@ -618,7 +525,9 @@ class Payu extends \hikashopPaymentPlugin
      */
     private function getOrderToken(int $order_id): string
     {
-        return $order_id . '_' . md5($order_id . $this->payment_params->signature_key);
+        $key = (string) ($this->payment_params->signature_key ?? '');
+
+        return $order_id . '_' . hash_hmac('sha256', (string) $order_id, $key);
     }
 
     /**
@@ -687,65 +596,6 @@ class Payu extends \hikashopPaymentPlugin
         }
     }
     
-    /**
-     * Get stored PayU order ID from HikaShop order
-     *
-     * @param   int  $order_id  The order ID
-     *
-     * @return  string|null
-     *
-     * @since   2.1.0
-     */
-    private function getStoredPayuOrderId(int $order_id): ?string
-    {
-        try {
-            $orderClass = hikashop_get('class.order');
-            $order = $orderClass->get($order_id);
-            
-            if ($order && !empty($order->order_payment_params)) {
-                $params = $order->order_payment_params;
-                
-                if (is_string($params)) {
-                    $params = hikashop_unserialize($params);
-                }
-                
-                if (is_object($params) && !empty($params->payu_order_id)) {
-                    return $params->payu_order_id;
-                }
-            }
-        } catch (\Exception $e) {
-            $this->logError('Failed to get PayU order id: ' . $e->getMessage());
-        }
-        
-        return null;
-    }
-    
-    /**
-     * Update order status using HikaShop API (sends email notification)
-     *
-     * @param   int     $order_id    The order ID
-     * @param   string  $new_status  The new status
-     *
-     * @return  void
-     *
-     * @since   2.1.0
-     */
-    private function updateOrderStatus(int $order_id, string $new_status): void
-    {
-        $this->logDebug('updateOrderStatus called for order ' . $order_id . ' with status ' . $new_status);
-        
-        try {
-            // Użyj modifyOrder() zamiast bezpośredniego SQL - to wysyła email z powiadomieniem
-            // Parametry: order_id, new_status, send_email_to_customer, send_email_to_admin
-            $this->modifyOrder($order_id, $new_status, true, true);
-            
-            $this->logDebug('updateOrderStatus: Order ' . $order_id . ' updated to ' . $new_status . ' via modifyOrder (email sent)');
-            
-        } catch (\Exception $e) {
-            $this->logError('updateOrderStatus failed: ' . $e->getMessage());
-        }
-    }
-
     /**
      * Log debug message
      *

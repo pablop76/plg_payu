@@ -1,10 +1,12 @@
 <?php
 /**
  * @package     HikaShop PayU Payment Plugin
- * @version     2.3.0
+ * @version     2.3.1
  * @copyright   (C) 2026 web-service. All rights reserved.
  * @license     GNU/GPL
  */
+
+declare(strict_types=1);
 
 namespace Pablop76\Plugin\HikashopPayment\Payu\Client;
 
