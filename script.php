@@ -1,7 +1,7 @@
 <?php
 /**
  * @package     HikaShop PayU Payment Plugin
- * @version     2.3.1
+ * @version     2.4.0
  * @copyright   (C) 2026 web-service. All rights reserved.
  * @license     GNU/GPL
  */
@@ -79,7 +79,54 @@ return new class () implements ServiceProviderInterface {
                         $this->enablePlugin();
                     }
 
+                    $this->protectLegacyLog();
+
                     return true;
+                }
+
+                /**
+                 * Zabezpiecza dziennik zostawiony przez wersje do 2.3.1.
+                 *
+                 * Pisały one do administrator/logs/payu_debug.log: zwykłego pliku pod znaną
+                 * nazwą, w katalogu, który bywa dostępny z sieci, z danymi kupujących w środku.
+                 * Od 2.4.0 wtyczka pisze do dziennika płatności HikaShopa. Stary plik
+                 * przenosimy za nagłówek z die(), tak jak robi to Joomla z własnymi
+                 * dziennikami, żeby nie dało się go pobrać przeglądarką, i usuwamy oryginał.
+                 *
+                 * @return  void
+                 */
+                private function protectLegacyLog(): void
+                {
+                    try {
+                        $stary = JPATH_ADMINISTRATOR . '/logs/payu_debug.log';
+                        $nowy  = JPATH_ADMINISTRATOR . '/logs/payu_debug.php';
+
+                        if (!is_file($stary)) {
+                            return;
+                        }
+
+                        if (!is_file($nowy)) {
+                            file_put_contents($nowy, "#\n#<?php die('Forbidden.'); ?>\n", LOCK_EX);
+                        }
+
+                        $zrodlo = @fopen($stary, 'rb');
+                        $cel    = @fopen($nowy, 'ab');
+
+                        if ($zrodlo && $cel) {
+                            stream_copy_to_stream($zrodlo, $cel);
+                        }
+
+                        if ($zrodlo) {
+                            fclose($zrodlo);
+                        }
+
+                        if ($cel) {
+                            fclose($cel);
+                            @unlink($stary);
+                        }
+                    } catch (\Throwable $e) {
+                        // Nie przerywaj instalacji z powodu starego dziennika
+                    }
                 }
 
                 /**

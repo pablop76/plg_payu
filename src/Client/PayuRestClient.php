@@ -1,7 +1,7 @@
 <?php
 /**
  * @package     HikaShop PayU Payment Plugin
- * @version     2.3.1
+ * @version     2.4.0
  * @copyright   (C) 2026 web-service. All rights reserved.
  * @license     GNU/GPL
  */
@@ -17,19 +17,19 @@ defined('_JEXEC') or die('Restricted access');
 /**
  * Lekki klient REST API PayU (v2.1) oparty o natywny klient HTTP Joomli.
  *
- * Zastępuje bibliotekę openpayu_php. Obsługuje:
+ * Obsługuje:
  *  - OAuth (grant client_credentials),
  *  - OrderCreate (odpowiedź 302 z ciałem JSON — nie podążamy za przekierowaniem),
- *  - OrderRetrieve,
+ *  - OrderRetrieve i anulowanie zamówienia,
  *  - weryfikację podpisu notyfikacji (nagłówek OpenPayU-Signature).
- *
- * API i model danych pozostają identyczne jak w starym SDK — zmienia się tylko
- * warstwa transportowa (Joomla\CMS\Http zamiast wbudowanego cURL biblioteki PayU).
  *
  * @since  2.3.0
  */
-final class PayuRestClient
+final class PayuRestClient implements PayuClientInterface
 {
+    /** Najdłuższy czas oczekiwania na odpowiedź PayU, w sekundach. */
+    private const TIMEOUT = 20;
+
     private string $serviceUrl;
     private string $oauthUrl;
     private string $posId;
@@ -38,14 +38,18 @@ final class PayuRestClient
     private string $clientSecret;
     private ?string $accessToken = null;
 
+    /** @var object|null klient HTTP podstawiany w testach */
+    private ?object $http;
+
     /**
-     * @param   bool    $sandbox       Tryb testowy (Sandbox)
-     * @param   string  $posId         Identyfikator POS
-     * @param   string  $signatureKey  Klucz podpisu (weryfikacja notyfikacji)
-     * @param   string  $clientId      OAuth Client ID
-     * @param   string  $clientSecret  OAuth Client Secret
+     * @param   bool         $sandbox       Tryb testowy (Sandbox)
+     * @param   string       $posId         Identyfikator POS
+     * @param   string       $signatureKey  Klucz podpisu (weryfikacja notyfikacji)
+     * @param   string       $clientId      OAuth Client ID
+     * @param   string       $clientSecret  OAuth Client Secret
+     * @param   object|null  $http          Klient HTTP do podmiany w testach
      */
-    public function __construct(bool $sandbox, string $posId, string $signatureKey, string $clientId, string $clientSecret)
+    public function __construct(bool $sandbox, string $posId, string $signatureKey, string $clientId, string $clientSecret, ?object $http = null)
     {
         $base = $sandbox ? 'https://secure.snd.payu.com' : 'https://secure.payu.com';
 
@@ -55,6 +59,7 @@ final class PayuRestClient
         $this->signatureKey = $signatureKey;
         $this->clientId     = $clientId;
         $this->clientSecret = $clientSecret;
+        $this->http         = $http;
     }
 
     /**
@@ -63,7 +68,7 @@ final class PayuRestClient
      *
      * @return  string
      *
-     * @throws  \RuntimeException
+     * @throws  PayuApiException
      */
     public function getAccessToken(): string
     {
@@ -77,17 +82,13 @@ final class PayuRestClient
             'client_secret' => $this->clientSecret,
         ], '', '&');
 
-        $response = HttpFactory::getHttp()->post(
-            $this->oauthUrl,
-            $body,
-            ['Content-Type' => 'application/x-www-form-urlencoded']
-        );
-
-        [$code, $data] = $this->decode($response);
+        [$code, $data] = $this->send('POST', $this->oauthUrl, $body, ['Content-Type' => 'application/x-www-form-urlencoded']);
 
         if ($code !== 200 || empty($data['access_token'])) {
             $msg = $data['error_description'] ?? $data['error'] ?? ('HTTP ' . $code);
-            throw new \RuntimeException('PayU OAuth failed: ' . $msg);
+
+            // Błędne dane OAuth PayU zgłasza kodem 401; traktujemy tak każdą odmowę tokenu.
+            throw new PayuApiException('PayU OAuth failed: ' . $msg, $code === 200 ? 401 : $code, (string) ($data['error'] ?? ''));
         }
 
         return $this->accessToken = (string) $data['access_token'];
@@ -100,7 +101,7 @@ final class PayuRestClient
      *
      * @return  array  [orderId, redirectUri]
      *
-     * @throws  \RuntimeException
+     * @throws  PayuApiException
      */
     public function createOrder(array $order): array
     {
@@ -111,11 +112,11 @@ final class PayuRestClient
         [$code, $data] = $this->authorizedRequest('POST', 'orders', $json);
 
         // PayU dla poprawnego OrderCreate zwraca 302 z ciałem JSON (redirectUri, orderId).
-        if (!in_array($code, [200, 201, 301, 302], true) || empty($data['redirectUri'])) {
-            throw new \RuntimeException($this->formatStatusError($data, $code));
+        if (!in_array($code, [200, 201, 301, 302], true) || empty($data['redirectUri']) || empty($data['orderId'])) {
+            throw $this->statusError($data, $code);
         }
 
-        return [$data['orderId'] ?? null, (string) $data['redirectUri']];
+        return [(string) $data['orderId'], (string) $data['redirectUri']];
     }
 
     /**
@@ -123,19 +124,45 @@ final class PayuRestClient
      *
      * @param   string  $orderId  Identyfikator zamówienia PayU
      *
-     * @return  array  Pierwszy element listy orders (z polami status, orderId, ...)
+     * @return  array|null  Pierwszy element listy orders (status, totalAmount, currencyCode…)
+     *                      albo null, gdy PayU takiego zamówienia nie zna
      *
-     * @throws  \RuntimeException
+     * @throws  PayuApiException
      */
-    public function retrieveOrder(string $orderId): array
+    public function retrieveOrder(string $orderId): ?array
     {
         [$code, $data] = $this->authorizedRequest('GET', 'orders/' . rawurlencode($orderId));
 
-        if ($code !== 200 || empty($data['orders'][0])) {
-            throw new \RuntimeException($this->formatStatusError($data, $code));
+        if ($code === 404) {
+            return null;
         }
 
-        return (array) $data['orders'][0];
+        if ($code !== 200 || empty($data['orders'][0]) || !is_array($data['orders'][0])) {
+            throw $this->statusError($data, $code);
+        }
+
+        return $data['orders'][0];
+    }
+
+    /**
+     * Anuluje zamówienie w PayU (DELETE orders/{orderId}).
+     *
+     * PayU odpowiada 200 także dla zamówienia już anulowanego. Nieznane zamówienie
+     * (404) traktujemy jak anulowane: nie ma czego opłacić.
+     *
+     * @throws  PayuApiException
+     */
+    public function cancelOrder(string $orderId): void
+    {
+        [$code, $data] = $this->authorizedRequest('DELETE', 'orders/' . rawurlencode($orderId));
+
+        if ($code === 404) {
+            return;
+        }
+
+        if ($code !== 200) {
+            throw $this->statusError($data, $code);
+        }
     }
 
     /**
@@ -148,7 +175,7 @@ final class PayuRestClient
      */
     public function verifyNotificationSignature(string $body, ?string $signatureHeader): bool
     {
-        if (empty($signatureHeader)) {
+        if (empty($signatureHeader) || $this->signatureKey === '') {
             return false;
         }
 
@@ -177,7 +204,7 @@ final class PayuRestClient
             $hash = hash('sha256', $concat);
         }
 
-        return hash_equals($hash, $parsed['signature']);
+        return hash_equals($hash, strtolower($parsed['signature']));
     }
 
     /**
@@ -200,13 +227,13 @@ final class PayuRestClient
      * Wykonuje autoryzowane żądanie REST (Bearer). Nie podąża za przekierowaniem,
      * dzięki czemu zachowujemy ciało odpowiedzi 302 z OrderCreate.
      *
-     * @param   string       $method  POST|GET
+     * @param   string       $method  POST|GET|DELETE
      * @param   string       $path    Ścieżka względem serviceUrl (np. "orders")
      * @param   string|null  $json    Ciało JSON (dla POST)
      *
      * @return  array  [kod HTTP, tablica z JSON]
      *
-     * @throws  \RuntimeException
+     * @throws  PayuApiException
      */
     private function authorizedRequest(string $method, string $path, ?string $json = null): array
     {
@@ -215,11 +242,32 @@ final class PayuRestClient
             'Content-Type'  => 'application/json',
         ];
 
-        $http = HttpFactory::getHttp(['follow_location' => false]);
+        return $this->send($method, $this->serviceUrl . $path, $json, $headers);
+    }
 
-        $response = ($method === 'POST')
-            ? $http->post($this->serviceUrl . $path, (string) $json, $headers)
-            : $http->get($this->serviceUrl . $path, $headers);
+    /**
+     * Wysyła żądanie i zamienia błąd sieci na wyjątek wtyczki.
+     *
+     * Limit czasu jest konieczny: bez niego zawieszone połączenie z PayU trzymałoby
+     * klienta na białej stronie do końca limitu wykonania PHP.
+     *
+     * @return  array  [kod HTTP, tablica z JSON]
+     *
+     * @throws  PayuApiException
+     */
+    private function send(string $method, string $url, ?string $body, array $headers): array
+    {
+        $http = $this->http ?? HttpFactory::getHttp(['follow_location' => false]);
+
+        try {
+            $response = match ($method) {
+                'POST'   => $http->post($url, (string) $body, $headers, self::TIMEOUT),
+                'DELETE' => $http->delete($url, $headers, self::TIMEOUT),
+                default  => $http->get($url, $headers, self::TIMEOUT),
+            };
+        } catch (\Throwable $blad) {
+            throw new PayuApiException('PayU nie odpowiada: ' . $blad->getMessage(), 0, '', $blad);
+        }
 
         return $this->decode($response);
     }
@@ -247,20 +295,19 @@ final class PayuRestClient
     }
 
     /**
-     * Buduje czytelny komunikat błędu z sekcji "status" odpowiedzi PayU
+     * Buduje wyjątek z sekcji "status" odpowiedzi PayU
      * (np. "ERROR_VALUE_INVALID - Invalid continueUrl").
      *
      * @param   array  $data  Zdekodowana odpowiedź
      * @param   int    $code  Kod HTTP
-     *
-     * @return  string
      */
-    private function formatStatusError(array $data, int $code): string
+    private function statusError(array $data, int $code): PayuApiException
     {
-        $status = $data['status'] ?? [];
-        $part   = $status['statusCode'] ?? ('HTTP ' . $code);
-        $desc   = $status['codeLiteral'] ?? $status['statusDesc'] ?? '';
+        $status     = is_array($data['status'] ?? null) ? $data['status'] : [];
+        $statusCode = (string) ($status['statusCode'] ?? '');
+        $part       = $statusCode !== '' ? $statusCode : ('HTTP ' . $code);
+        $desc       = (string) ($status['codeLiteral'] ?? $status['statusDesc'] ?? '');
 
-        return trim($part . ($desc !== '' ? ' - ' . $desc : ''));
+        return new PayuApiException(trim($part . ($desc !== '' ? ' - ' . $desc : '')), $code, $statusCode);
     }
 }
