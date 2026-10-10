@@ -2,19 +2,19 @@
 <updates>
     <update>
         <name>PayU Polska (HikaShop)</name>
-        <description>Wtyczka płatności Joomla integrująca HikaShop z PayU Polska — OAuth + REST API, sprawdzanie statusu po powrocie (localhost/sandbox).</description>
+        <description>Wtyczka płatności Joomla integrująca HikaShop z PayU Polska — REST API, potwierdzanie płatności powiadomieniem i przy powrocie klienta.</description>
         <element>payu</element>
         <type>plugin</type>
         <client>site</client>
         <folder>hikashoppayment</folder>
-        <version>2.3.1</version>
+        <version>2.4.0</version>
         <infourl title="PayU Polska (HikaShop)">https://github.com/pablop76/plg_payu</infourl>
         <targetplatform name="joomla" version="(5|6)\.[0-9]+"/>
         <php_minimum>8.1.0</php_minimum>
         <downloads>
-            <downloadurl type="full" format="zip">https://github.com/pablop76/plg_payu/releases/download/v2.3.1/plg_payu-2.3.1.zip</downloadurl>
+            <downloadurl type="full" format="zip">https://github.com/pablop76/plg_payu/releases/download/v2.4.0/plg_payu-2.4.0.zip</downloadurl>
         </downloads>
-        <sha256>7d1a5b5358966d76b2c018955390e696f77bd4d29613af25e7ed6ea84d823e2d</sha256>
+        <sha256>b5bff6cd1ebbee980ebc22f7d25f141eab1d441fb016be7767de7f0a9620a31d</sha256>
         <tags>
             <tag>stable</tag>
         </tags>
