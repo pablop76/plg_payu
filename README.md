@@ -113,7 +113,7 @@ php tests/sandbox.php
 
 ## Changelog
 
-### v2.4.0
+### v2.4.0 (2026-10-10)
 
 - **Ponowna zapłata działa:** każda próba ma własny identyfikator dla PayU; wcześniejsza niedokończona próba jest anulowana, opłacona potwierdzana
 - **Nieudana płatność nie wygląda jak udana:** adres powrotu prowadzi do wtyczki, która pyta PayU o stan; podziękowanie dopiero po potwierdzonej zapłacie
